@@ -41,8 +41,9 @@ The UI contains no business logic. Everything in `core/` can be called from test
     core/pipelines.py         classical and quantum sklearn pipelines
     core/classical_models.py  model registry
     core/quantum_models.py    quantum kernel SVM, VQC, VQR (PennyLane)
-    core/evaluation.py        CV metrics, clustering metrics, qubit sweep
-    core/recommend.py         rule-based algorithm recommender      (to build)
+    core/evaluation.py        CV metrics, clustering metrics, qubit sweep, stratified sampling
+    core/recommend.py         rule-based algorithm recommender
+    core/optimization.py      leakage-safe preprocessing and hyperparameter search
     core/db/models.py         SQLAlchemy tables
     core/db/repository.py     save/load/revert/compare versions
     tests/                    pytest suite

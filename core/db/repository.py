@@ -36,16 +36,44 @@ class Repository:
             s.commit()
             return p.id
 
+    def projects(self):
+        with Session(self.engine) as s:
+            return [{"id": p.id, "name": p.name, "created_at": p.created_at}
+                    for p in s.scalars(select(Project).order_by(Project.name))]
+
+    def datasets(self, project_id):
+        with Session(self.engine) as s:
+            return [{"id": d.id, "filename": d.filename, "sha256": d.sha256,
+                     "stored_path": d.stored_path, "n_rows": d.n_rows, "n_cols": d.n_cols,
+                     "uploaded_at": d.uploaded_at}
+                    for d in s.scalars(select(Dataset).where(Dataset.project_id == project_id)
+                                       .order_by(Dataset.uploaded_at.desc()))]
+
     def add_dataset(self, project_id, filename, content: bytes, n_rows, n_cols):
         digest = hashlib.sha256(content).hexdigest()
-        path = self.data_dir / "uploads" / f"{digest}.csv"
-        path.write_bytes(content)
         with Session(self.engine) as s:
+            existing = s.scalar(select(Dataset).where(
+                Dataset.project_id == project_id, Dataset.sha256 == digest))
+            if existing is not None:
+                return existing.id
+            path = self.data_dir / "uploads" / f"{digest}.csv"
+            path.write_bytes(content)
             d = Dataset(project_id=project_id, filename=filename, sha256=digest,
                         stored_path=str(path), n_rows=n_rows, n_cols=n_cols)
             s.add(d)
             s.commit()
             return d.id
+
+    def update_version_metadata(self, version_id, label=None, notes=None):
+        with Session(self.engine) as s:
+            v = s.get(PipelineVersion, version_id)
+            if v is None:
+                raise KeyError(f"version {version_id} not found")
+            if label is not None:
+                v.label = label
+            if notes is not None:
+                v.notes = notes
+            s.commit()
 
     def delete_dataset(self, dataset_id):
         with Session(self.engine) as s:
@@ -87,8 +115,21 @@ class Repository:
         with Session(self.engine) as s:
             rows = s.scalars(select(PipelineVersion).where(PipelineVersion.project_id == project_id)
                              .order_by(PipelineVersion.version_no.desc()))
-            return [{"id": v.id, "version_no": v.version_no, "parent_id": v.parent_id,
-                     "label": v.label, "task": v.task, "created_at": v.created_at} for v in rows]
+            output = []
+            for v in rows:
+                result_rows = s.scalars(
+                    select(RunResult).join(Run, Run.id == RunResult.run_id)
+                    .where(Run.version_id == v.id)
+                )
+                metric = {"classification": "f1", "regression": "r2",
+                          "clustering": "silhouette"}.get(v.task)
+                values = [r.metrics.get(metric) for r in result_rows
+                          if metric and r.metrics.get(metric) is not None]
+                best = max(values) if values else None
+                output.append({"id": v.id, "version_no": v.version_no, "parent_id": v.parent_id,
+                               "label": v.label, "task": v.task, "created_at": v.created_at,
+                               "best_metric": best})
+            return output
 
     def revert_to(self, version_id, label=None):
         """Create a NEW version copying an old configuration. The old version is untouched."""

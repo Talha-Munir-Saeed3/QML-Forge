@@ -1,31 +1,96 @@
+import io
+import hashlib
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core.cleaning import CleaningPipeline
-from core.features import build_xy, quantum_readiness
 from core.classical_models import CLASSIFIERS, REGRESSORS, CLUSTERERS
+from core.cleaning import CleaningPipeline
+from core.config import (DATA_DIR, DEFAULT_SEED, MAX_QUBITS, MAX_UPLOAD_MB,
+                         QUANTUM_DEFAULT_ROWS, QUANTUM_MAX_ROWS)
+from core.db import Repository
+from core.evaluation import evaluate, evaluate_clustering, qubit_sweep, sample_for_quantum, PRIMARY
+from core.features import build_xy, quantum_readiness
 from core.pipelines import classical_pipeline, quantum_pipeline
-from core.evaluation import evaluate, evaluate_clustering, qubit_sweep, PRIMARY
+from core.optimization import hyperparameter_search
+from core.recommend import recommend
 
 try:
     from core.quantum_models import QUANTUM_CLASSIFIERS, QUANTUM_REGRESSORS
-    HAS_Q = True
 except ImportError:
-    HAS_Q, QUANTUM_CLASSIFIERS, QUANTUM_REGRESSORS = False, {}, {}
+    QUANTUM_CLASSIFIERS, QUANTUM_REGRESSORS = {}, {}
 
 st.set_page_config(page_title="QML Forge", layout="wide")
+repo = Repository(data_dir=DATA_DIR)
 st.title("QML Forge")
-st.caption("Clean a CSV, then benchmark classical and quantum models on the same data.")
+st.caption("Clean a CSV, benchmark reproducible classical models, and optionally simulate quantum models.")
 
-tab_clean, tab_task, tab_train = st.tabs(["1 · Clean data", "2 · Define task", "3 · Train & compare"])
 
-# ---------------------------------------------------------------- 1. CLEAN
+def csv_upload(upload):
+    if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
+        raise ValueError(f"CSV exceeds the {MAX_UPLOAD_MB} MB upload limit.")
+    raw = upload.getvalue()
+    if not raw:
+        raise ValueError("The uploaded CSV is empty.")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    try:
+        return pd.read_csv(io.StringIO(text), sep=None, engine="python"), raw
+    except (pd.errors.ParserError, UnicodeError) as exc:
+        raise ValueError("Could not parse the CSV; check its delimiter and encoding.") from exc
+
+
+def task_data(cp, task, target):
+    if task == "clustering":
+        return pd.get_dummies(cp.df.select_dtypes(exclude=["datetime"]), dtype=float), None
+    return build_xy(cp.df, target, task)
+
+
+def models_for(task, use_quantum):
+    classical = {"classification": CLASSIFIERS, "regression": REGRESSORS,
+                 "clustering": CLUSTERERS}[task]
+    quantum = (QUANTUM_CLASSIFIERS if task == "classification" else QUANTUM_REGRESSORS
+               if task == "regression" else {}) if use_quantum else {}
+    return classical, quantum
+
+
+if "project_id" not in st.session_state:
+    projects = repo.projects()
+    st.session_state.project_id = projects[0]["id"] if projects else repo.create_project("Default project")
+
+with st.sidebar:
+    projects = repo.projects()
+    project_names = {p["name"]: p["id"] for p in projects}
+    current_name = next((name for name, pid in project_names.items()
+                         if pid == st.session_state.project_id), projects[0]["name"])
+    chosen = st.selectbox("Project", list(project_names), index=list(project_names).index(current_name))
+    st.session_state.project_id = project_names[chosen]
+    new_project = st.text_input("New project name")
+    if st.button("Create project") and new_project.strip():
+        st.session_state.project_id = repo.create_project(new_project.strip())
+        st.rerun()
+
+tab_clean, tab_task, tab_train, tab_history = st.tabs(
+    ["1 · Clean data", "2 · Define task", "3 · Train & compare", "4 · History"])
+
 with tab_clean:
-    up = st.file_uploader("Upload CSV", type="csv")
-    if up and st.session_state.get("fname") != up.name:
-        st.session_state.cp = CleaningPipeline(pd.read_csv(up))
-        st.session_state.fname = up.name
+    upload = st.file_uploader("Upload CSV", type=["csv"])
+    if upload and st.session_state.get("upload_digest") != hashlib.sha256(upload.getvalue()).hexdigest():
+        try:
+            frame, raw = csv_upload(upload)
+            existing = {d["sha256"] for d in repo.datasets(st.session_state.project_id)}
+            dataset_id = repo.add_dataset(st.session_state.project_id, upload.name, raw,
+                                          len(frame), len(frame.columns))
+            if hashlib.sha256(raw).hexdigest() in existing:
+                st.warning("This file is already uploaded to the selected project; using the existing dataset.")
+            st.session_state.update(upload_digest=hashlib.sha256(raw).hexdigest(),
+                                    dataset_id=dataset_id, raw_df=frame, fname=upload.name)
+            st.session_state.cp = CleaningPipeline(frame)
+        except ValueError as exc:
+            st.error(str(exc))
     cp = st.session_state.get("cp")
     if cp is None:
         st.info("Upload a CSV to begin.")
@@ -34,11 +99,10 @@ with tab_clean:
         with left:
             st.write(f"**{cp.df.shape[0]} rows × {cp.df.shape[1]} columns**")
             st.dataframe(cp.df.head(100), use_container_width=True)
-            prof = pd.DataFrame({"dtype": cp.df.dtypes.astype(str),
-                                 "missing": cp.df.isna().sum(),
-                                 "missing_%": (cp.df.isna().mean() * 100).round(1),
-                                 "unique": cp.df.nunique()})
-            st.dataframe(prof, use_container_width=True)
+            st.dataframe(pd.DataFrame({"dtype": cp.df.dtypes.astype(str),
+                                       "missing": cp.df.isna().sum(),
+                                       "missing_%": (cp.df.isna().mean() * 100).round(1),
+                                       "unique": cp.df.nunique()}), use_container_width=True)
         with right:
             st.subheader("Cleaning steps")
             cols = list(cp.df.columns)
@@ -67,101 +131,140 @@ with tab_clean:
             if c1.button("Apply", type="primary"):
                 cp.apply(op, **params)
                 st.rerun()
-            if c2.button("Undo last"):
+            if c2.button("Undo last") and cp.log:
                 cp.undo()
                 st.rerun()
-            st.subheader("Audit log")
             st.json(cp.log)
             st.download_button("Download cleaned CSV", cp.df.to_csv(index=False), "cleaned.csv")
-            st.download_button("Download cleaning log", cp.to_json(), "cleaning_log.json")
 
-# ---------------------------------------------------------------- 2. TASK
 with tab_task:
     cp = st.session_state.get("cp")
     if cp is None:
         st.info("Upload data first.")
     else:
         task = st.radio("Task", ["classification", "regression", "clustering"], horizontal=True)
-        target = None
-        if task != "clustering":
-            target = st.selectbox("Target column", list(cp.df.columns), index=len(cp.df.columns) - 1)
-        st.session_state.task, st.session_state.target = task, target
-        if task == "clustering":
-            X, y = pd.get_dummies(cp.df.select_dtypes(exclude=["datetime"]), dtype=float), None
-        else:
-            X, y = build_xy(cp.df, target, task)
-        st.session_state.X, st.session_state.y = X, y
-        q, notes = quantum_readiness(X, task)
+        target = None if task == "clustering" else st.selectbox("Target column", list(cp.df.columns))
+        X, y = task_data(cp, task, target)
+        st.session_state.update(task=task, target=target, X=X, y=y)
+        q, notes = quantum_readiness(X, task, MAX_QUBITS, QUANTUM_MAX_ROWS)
         st.session_state.suggested_q = q
         st.write(f"**Feature matrix:** {X.shape[0]} rows × {X.shape[1]} features")
-        st.subheader("Quantum readiness")
-        for n in notes:
-            st.write("• " + n)
+        for note in notes:
+            st.write("• " + note)
 
-# ---------------------------------------------------------------- 3. TRAIN
 with tab_train:
     if "X" not in st.session_state:
         st.info("Define the task first.")
     else:
         X, y, task = st.session_state.X, st.session_state.y, st.session_state.task
-        if task == "classification":
-            classical, quantum = CLASSIFIERS, QUANTUM_CLASSIFIERS
-        elif task == "regression":
-            classical, quantum = REGRESSORS, QUANTUM_REGRESSORS
-        else:
-            classical, quantum = CLUSTERERS, {}
-        picks = st.multiselect("Classical models", list(classical), default=list(classical)[:4])
-        qpicks = st.multiselect("Quantum models", list(quantum)) if HAS_Q else []
-        if not HAS_Q and task != "clustering":
-            st.warning("Install pennylane to enable quantum models.")
-        c1, c2, c3, c4 = st.columns(4)
-        n_q = c1.slider("Qubits", 2, 8, min(st.session_state.suggested_q, 6))
-        cv = c2.slider("CV folds", 2, 5, 3)
-        cap = c3.slider("Row cap for quantum", 40, 400, 120)
-        k = c4.slider("Clusters (k)", 2, 10, 3) if task == "clustering" else 3
-
+        use_quantum = st.checkbox("Use quantum models", value=False)
+        if use_quantum:
+            st.info("Quantum models are simulated classically and trained on a capped sample; this does not claim quantum advantage.")
+        classical, quantum = models_for(task, use_quantum)
+        default_picks = st.session_state.pop("recommended", list(classical)[:4])
+        picked = st.multiselect("Classical models", list(classical),
+                                default=[n for n in default_picks if n in classical],
+                                key="classical_picks")
+        qpicked = st.multiselect("Quantum models", list(quantum),
+                                 default=[n for n in default_picks if n in quantum],
+                                 key="quantum_picks")
+        if st.button("Use recommended"):
+            rec = recommend(task, len(X), X.shape[1],
+                            np.bincount(y) / len(y) if y is not None and task == "classification" else None,
+                            float(X.isna().mean().mean()), 0)
+            st.session_state.recommended = [r["name"] for r in rec
+                                            if r["name"] in classical or r["name"] in quantum]
+            st.rerun()
+        if st.session_state.get("recommended"):
+            st.caption("Recommended: " + ", ".join(st.session_state.recommended))
+        n_q = st.slider("Qubits", 2, MAX_QUBITS, min(st.session_state.get("suggested_q", 2), MAX_QUBITS))
+        cv = st.slider("CV folds", 2, 5, 3)
+        cap = st.slider("Quantum sample rows", 20, QUANTUM_MAX_ROWS, QUANTUM_DEFAULT_ROWS)
+        same_sample = st.checkbox("Also run classical models on the same sample", value=True) if use_quantum else False
+        scaler = st.selectbox("Scaler", ["standard", "minmax", "none"])
+        pca = st.number_input("PCA components (0 = automatic)", min_value=0, value=0)
+        search_mode = st.selectbox("Hyperparameter search", ["none", "grid", "random"])
+        search_budget = st.number_input("Random search iterations", 1, 30, 8)
+        optimization = {"scaler": scaler, "pca_components": pca or None,
+                        "feature_selection": "none", "search": search_mode,
+                        "n_iter": search_budget}
         if st.button("Run benchmark", type="primary"):
+            run_X, run_y = sample_for_quantum(X, y, cap, task, DEFAULT_SEED) if use_quantum else (X, y)
+            jobs = [(n, False) for n in picked] + [(n, True) for n in qpicked]
+            if use_quantum and same_sample:
+                jobs = [(n, False) for n in picked] + [(n, True) for n in qpicked]
             rows = []
-            prog = st.progress(0.0)
-            jobs = [(n, False) for n in picks] + [(n, True) for n in qpicks]
-            for i, (name, is_q) in enumerate(jobs):
+            for name, is_q in jobs:
                 try:
-                    Xs, ys = X, y
-                    if is_q and len(X) > cap:
-                        idx = X.sample(cap, random_state=0).index
-                        Xs, ys = X.loc[idx], y.loc[idx]
-                    if task == "clustering":
-                        pipe = classical_pipeline(classical[name](k))
-                        res = evaluate_clustering(pipe, Xs)
-                    else:
-                        est = quantum[name](n_q) if is_q else classical[name]()
-                        pipe = (quantum_pipeline(est, n_q, Xs.shape[1]) if is_q
-                                else classical_pipeline(est))
-                        res = evaluate(pipe, Xs, ys, task, cv)
+                    current_X, current_y = ((run_X, run_y) if is_q or (use_quantum and same_sample)
+                                            else (X, y))
+                    est = quantum[name](n_q) if is_q else classical[name](3) if task == "clustering" else classical[name]()
+                    pipe = (quantum_pipeline(est, n_q, current_X.shape[1], optimization, task)
+                            if is_q else classical_pipeline(est, optimization, task))
+                    if not is_q and task != "clustering":
+                        pipe = hyperparameter_search(pipe, search_mode, search_budget, cv, DEFAULT_SEED)
+                    result = (evaluate_clustering(pipe, current_X) if task == "clustering"
+                              else evaluate(pipe, current_X, current_y, task, cv, DEFAULT_SEED))
                     rows.append({"model": name, "type": "quantum" if is_q else "classical",
-                                 "rows_used": len(Xs), **res})
-                except Exception as e:
+                                 "rows_used": len(current_X), **result})
+                except Exception as exc:
                     rows.append({"model": name, "type": "quantum" if is_q else "classical",
-                                 "error": str(e)[:120]})
-                prog.progress((i + 1) / len(jobs))
-            st.session_state.results = pd.DataFrame(rows)
-
-        res = st.session_state.get("results")
-        if res is not None:
+                                 "rows_used": len(run_X), "error": str(exc)[:300]})
+            results = pd.DataFrame(rows)
+            st.session_state.results = results
+            algorithms = [{"name": n, "quantum": q} for n, q in jobs]
+            version_id = repo.save_version(st.session_state.project_id, st.session_state.dataset_id,
+                task, st.session_state.target, st.session_state.cp.log, optimization,
+                algorithms, DEFAULT_SEED, cv)
+            repo.record_run(version_id, results.to_dict("records"), len(run_X))
+            st.success(f"Saved immutable version {version_id}.")
+        results = st.session_state.get("results")
+        if results is not None:
             key = PRIMARY[task]
-            if key in res:
-                asc = False
-                res = res.sort_values(key, ascending=asc, na_position="last")
-            st.subheader("Leaderboard")
-            st.dataframe(res, use_container_width=True)
-            if key in res:
-                st.bar_chart(res.set_index("model")[key])
-            st.download_button("Download results CSV", res.to_csv(index=False), "results.csv")
-
-        if HAS_Q and task == "classification":
+            st.dataframe(results.sort_values(key, ascending=False, na_position="last")
+                         if key in results else results, use_container_width=True)
+        if use_quantum and task == "classification" and qpicked:
             with st.expander("Experiment: accuracy vs number of qubits"):
-                top = st.slider("Max qubits", 3, 8, 6)
+                top = st.slider("Maximum sweep qubits", 2, MAX_QUBITS, min(MAX_QUBITS, n_q + 2))
                 if st.button("Run qubit sweep"):
-                    idx = X.sample(min(len(X), cap), random_state=0).index
+                    sweep_X, sweep_y = sample_for_quantum(X, y, cap, task, DEFAULT_SEED)
                     with st.spinner("Simulating circuits..."):
-                        st.line_chart(qubit_sweep(X.loc[idx], y.loc[idx], range(2, top + 1), cv))
+                        st.dataframe(qubit_sweep(sweep_X, sweep_y, range(2, top + 1), cv),
+                                     use_container_width=True)
+
+with tab_history:
+    history = repo.history(st.session_state.project_id)
+    if not history:
+        st.info("No benchmark versions yet.")
+    else:
+        st.dataframe(pd.DataFrame(history), use_container_width=True)
+        ids = {f"v{h['version_no']} — {h.get('label') or 'unlabelled'}": h["id"] for h in history}
+        selected = st.selectbox("Open version", list(ids))
+        version_id = ids[selected]
+        version = repo.get_version(version_id)
+        st.json({k: version[k] for k in ("task", "target", "cleaning_steps", "optimization", "algorithms", "seed", "cv_folds")})
+        c1, c2 = st.columns(2)
+        label = c1.text_input("Label", value=version["label"] or "")
+        notes = c2.text_area("Notes", value=version["notes"] or "")
+        if st.button("Save label/notes"):
+            repo.update_version_metadata(version_id, label, notes)
+            st.rerun()
+        if st.button("Revert this version"):
+            repo.revert_to(version_id)
+            st.session_state.cp.replay(version["cleaning_steps"])
+            st.success("Created a new child version and replayed its cleaning steps.")
+        results = repo.results_for(version_id)
+        if results:
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
+        compare_with = st.selectbox("Compare with", [x for x in ids if x != selected])
+        if st.button("Compare versions"):
+            comparison = repo.compare(version_id, ids[compare_with])
+            st.json(comparison["settings_diff"])
+            left = pd.DataFrame(comparison["models_a"].values()).add_prefix("a_")
+            right = pd.DataFrame(comparison["models_b"].values()).add_prefix("b_")
+            st.dataframe(pd.concat([left.reset_index(drop=True), right.reset_index(drop=True)],
+                                   axis=1), use_container_width=True)
+        if st.checkbox("I understand deletion removes this dataset and its versions") and st.button("Delete dataset"):
+            repo.delete_dataset(version["dataset_id"])
+            st.session_state.clear()
+            st.rerun()

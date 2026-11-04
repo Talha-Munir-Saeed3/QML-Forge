@@ -33,6 +33,11 @@ Author: Talha Munir Saeed
 Data is stored locally in `data/` (SQLite database + uploaded files). Switch to PostgreSQL by setting
 `QMLFORGE_DB_URL`.
 
+Copy `.env.example` to `.env` for local configuration. The `.env` file is ignored by git; never put
+database passwords in tracked files. The app validates CSV size (50 MB), encoding, and delimiter
+before storing an upload. Quantum models are off by default, simulated, and capped at 300 sampled
+rows and 8 qubits.
+
 ## Documentation
 
 | File                                         | Contents                                                          |
