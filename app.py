@@ -1,4 +1,3 @@
-import io
 import hashlib
 
 import numpy as np
@@ -7,7 +6,7 @@ import streamlit as st
 
 from core.classical_models import CLASSIFIERS, REGRESSORS, CLUSTERERS
 from core.cleaning import CleaningPipeline
-from core.config import (DATA_DIR, DEFAULT_SEED, MAX_QUBITS, MAX_UPLOAD_MB,
+from core.config import (DATA_DIR, DEFAULT_SEED, MAX_QUBITS,
                          QUANTUM_DEFAULT_ROWS, QUANTUM_MAX_ROWS)
 from core.db import Repository
 from core.evaluation import evaluate, evaluate_clustering, qubit_sweep, sample_for_quantum, PRIMARY
@@ -15,6 +14,7 @@ from core.features import build_xy, quantum_readiness
 from core.pipelines import classical_pipeline, quantum_pipeline
 from core.optimization import hyperparameter_search
 from core.recommend import recommend
+from core.upload import fetch_csv_url, parse_csv_bytes
 
 try:
     from core.quantum_models import QUANTUM_CLASSIFIERS, QUANTUM_REGRESSORS
@@ -25,22 +25,6 @@ st.set_page_config(page_title="QML Forge", layout="wide")
 repo = Repository(data_dir=DATA_DIR)
 st.title("QML Forge")
 st.caption("Clean a CSV, benchmark reproducible classical models, and optionally simulate quantum models.")
-
-
-def csv_upload(upload):
-    if upload.size > MAX_UPLOAD_MB * 1024 * 1024:
-        raise ValueError(f"CSV exceeds the {MAX_UPLOAD_MB} MB upload limit.")
-    raw = upload.getvalue()
-    if not raw:
-        raise ValueError("The uploaded CSV is empty.")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
-    try:
-        return pd.read_csv(io.StringIO(text), sep=None, engine="python"), raw
-    except (pd.errors.ParserError, UnicodeError) as exc:
-        raise ValueError("Could not parse the CSV; check its delimiter and encoding.") from exc
 
 
 def task_data(cp, task, target):
@@ -77,20 +61,40 @@ tab_clean, tab_task, tab_train, tab_history = st.tabs(
     ["1 · Clean data", "2 · Define task", "3 · Train & compare", "4 · History"])
 
 with tab_clean:
-    upload = st.file_uploader("Upload CSV", type=["csv"])
-    if upload and st.session_state.get("upload_digest") != hashlib.sha256(upload.getvalue()).hexdigest():
+    upload_tab, url_tab = st.tabs(["Upload file", "Load from URL"])
+    upload = upload_tab.file_uploader("Upload CSV", type=["csv"])
+    dataset_input = None
+    if upload:
+        dataset_input = (upload.name, upload.getvalue())
+    with url_tab:
+        source_url = st.text_input(
+            "Public CSV URL",
+            placeholder="https://raw.githubusercontent.com/.../data.csv",
+            help="Use a direct public CSV link, such as a GitHub raw URL. The URL must use HTTP(S).",
+        )
+        load_url = st.button("Load CSV from URL")
+    if load_url and source_url:
         try:
-            frame, raw = csv_upload(upload)
-            existing = {d["sha256"] for d in repo.datasets(st.session_state.project_id)}
-            dataset_id = repo.add_dataset(st.session_state.project_id, upload.name, raw,
-                                          len(frame), len(frame.columns))
-            if hashlib.sha256(raw).hexdigest() in existing:
-                st.warning("This file is already uploaded to the selected project; using the existing dataset.")
-            st.session_state.update(upload_digest=hashlib.sha256(raw).hexdigest(),
-                                    dataset_id=dataset_id, raw_df=frame, fname=upload.name)
-            st.session_state.cp = CleaningPipeline(frame)
+            frame, raw, filename = fetch_csv_url(source_url)
+            dataset_input = (filename, raw)
         except ValueError as exc:
             st.error(str(exc))
+    if dataset_input:
+        filename, raw = dataset_input
+        digest = hashlib.sha256(raw).hexdigest()
+        if st.session_state.get("upload_digest") != digest:
+            try:
+                frame, raw = parse_csv_bytes(raw)
+                existing = {d["sha256"] for d in repo.datasets(st.session_state.project_id)}
+                dataset_id = repo.add_dataset(st.session_state.project_id, filename, raw,
+                                              len(frame), len(frame.columns))
+                if digest in existing:
+                    st.warning("This dataset is already uploaded to the selected project; using the existing dataset.")
+                st.session_state.update(upload_digest=digest, dataset_id=dataset_id,
+                                        raw_df=frame, fname=filename)
+                st.session_state.cp = CleaningPipeline(frame)
+            except ValueError as exc:
+                st.error(str(exc))
     cp = st.session_state.get("cp")
     if cp is None:
         st.info("Upload a CSV to begin.")

@@ -7,7 +7,7 @@ Priority: **M** = must (MVP), **S** = should (v1), **C** = could (later).
 ### Upload and profiling
 | ID | Requirement | P |
 |----|-------------|---|
-| FR-1 | Upload a CSV (up to 50 MB); auto-detect delimiter and encoding; show a preview | M |
+| FR-1 | Upload a CSV or public CSV URL (up to 50 MB); auto-detect delimiter and encoding; show a preview | M |
 | FR-2 | Profile each column: dtype, missing %, unique count, min/max/mean, top values | M |
 | FR-3 | Store the file hash (SHA-256); warn if the same dataset was uploaded before | S |
 
