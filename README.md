@@ -1,11 +1,10 @@
-<<<<<<< HEAD
 # QML Forge
 
 **Upload a CSV. Clean it. Run classical and quantum ML. Keep every version.**
 
 QML Forge is a web workbench where anyone can drop in a CSV, pick data-cleaning and optimization
 options, choose which machine learning algorithms to run (or accept a recommended set), and read the
-results. Every run is saved as an immutable *version* in a database, so you can compare versions or
+results. Every run is saved as an immutable _version_ in a database, so you can compare versions or
 revert to an earlier setup and try different options without losing anything.
 
 Author: Talha Munir Saeed
@@ -18,7 +17,7 @@ Author: Talha Munir Saeed
 1. **Upload** a CSV (preview + automatic profiling).
 2. **Clean**: choose options (missing values, duplicates, types, outliers, encoding...). Each step is logged.
 3. **Optimize**: feature selection, dimensionality reduction, hyperparameter search, class balancing.
-4. **Choose algorithms**: pick manually, or press *Recommended* for a rule-based shortlist.
+4. **Choose algorithms**: pick manually, or press _Recommended_ for a rule-based shortlist.
    Quantum models (quantum-kernel SVM, variational classifier/regressor) can be toggled on.
 5. **Run and read results**: leaderboard, metrics, charts, export.
 6. **Version history**: every run is stored. Compare two versions, or **revert** to an old one
@@ -36,19 +35,15 @@ Data is stored locally in `data/` (SQLite database + uploaded files). Switch to 
 
 ## Documentation
 
-| File | Contents |
-|------|----------|
+| File                                         | Contents                                                          |
+| -------------------------------------------- | ----------------------------------------------------------------- |
 | [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Functional and non-functional requirements, scope, open questions |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, design decisions |
-| [docs/DATABASE.md](docs/DATABASE.md) | Schema, versioning and revert semantics |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phased delivery plan |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, design decisions                           |
+| [docs/DATABASE.md](docs/DATABASE.md)         | Schema, versioning and revert semantics                           |
+| [docs/ROADMAP.md](docs/ROADMAP.md)           | Phased delivery plan                                              |
 
 ## Honest note on the quantum part
 
 Quantum models run on a classical simulator and are best on small datasets (a few hundred rows,
 up to ~8 qubits). QML Forge does not claim quantum advantage; it lets you measure, on your own data,
 when a quantum model helps and when it does not.
-=======
-# QML-Forge
-Upload a CSV, clean it with logged and undoable steps, run classical and quantum ML models side by side, and keep every run as a version you can compare or revert to. Built with Streamlit, scikit-learn, PennyLane and SQLite.
->>>>>>> 97c6f3a22700add8f5b063643cd5bd3760d1015c
