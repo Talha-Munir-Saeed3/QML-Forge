@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # QML Forge
 
 **Upload a CSV. Clean it. Run classical and quantum ML. Keep every version.**
@@ -47,3 +48,7 @@ Data is stored locally in `data/` (SQLite database + uploaded files). Switch to 
 Quantum models run on a classical simulator and are best on small datasets (a few hundred rows,
 up to ~8 qubits). QML Forge does not claim quantum advantage; it lets you measure, on your own data,
 when a quantum model helps and when it does not.
+=======
+# QML-Forge
+Upload a CSV, clean it with logged and undoable steps, run classical and quantum ML models side by side, and keep every run as a version you can compare or revert to. Built with Streamlit, scikit-learn, PennyLane and SQLite.
+>>>>>>> 97c6f3a22700add8f5b063643cd5bd3760d1015c
