@@ -71,10 +71,10 @@ QML-Forge/
 ## UI responsibilities
 
 - `app.py` is the Streamlit home page and shared entry point.
-- `pages/1_Upload_Clean.py` handles data ingestion, profiling, and cleaning.
-- `pages/2_Define_Task.py` handles task and target selection.
-- `pages/3_Train_Compare.py` handles model selection, optimization, evaluation, and saving runs.
-- `pages/4_History.py` handles version history, comparison, revert, and deletion.
+- `pages/Upload_Clean.py` handles data ingestion, profiling, and cleaning.
+- `pages/Define_Task.py` handles task and target selection.
+- `pages/Train_Compare.py` handles model selection, optimization, evaluation, and saving runs.
+- `pages/History.py` handles version history, comparison, revert, and deletion.
 - `core/ui.py` contains shared UI/session/database helpers used by the pages.
 
 Business logic remains in `core/`; the page files coordinate user interaction and call reusable
