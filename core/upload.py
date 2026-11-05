@@ -1,6 +1,7 @@
 """Validated CSV ingestion for local files and public HTTP(S) URLs."""
 
 import io
+import importlib
 import ipaddress
 import socket
 import os
@@ -101,10 +102,11 @@ def _kaggle_api():
             "KAGGLE_USERNAME and KAGGLE_KEY in .env."
         )
     try:
-        from kaggle.api.kaggle_api_extended import KaggleApi
-    except ImportError as exc:
+        kaggle_module = importlib.import_module("kaggle.api.kaggle_api_extended")
+        kaggle_api_class = kaggle_module.KaggleApi
+    except (ImportError, AttributeError) as exc:
         raise ValueError("Install the Kaggle package with: pip install kaggle") from exc
-    api = KaggleApi()
+    api = kaggle_api_class()
     try:
         api.authenticate()
     except Exception as exc:
