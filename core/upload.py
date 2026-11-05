@@ -8,6 +8,7 @@ import os
 import re
 import csv
 import zipfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -94,13 +95,11 @@ def kaggle_slug(url):
 
 
 def _kaggle_api():
-    if not os.getenv("KAGGLE_API_TOKEN") and not (
+    api_token = os.getenv("KAGGLE_API_TOKEN")
+    if not api_token and not (
         os.getenv("KAGGLE_USERNAME") and os.getenv("KAGGLE_KEY")
     ):
-        raise ValueError(
-            "Kaggle credentials are not configured. Set KAGGLE_API_TOKEN or "
-            "KAGGLE_USERNAME and KAGGLE_KEY in .env."
-        )
+        raise ValueError("Kaggle access is not configured on this machine.")
     try:
         kaggle_module = importlib.import_module("kaggle.api.kaggle_api_extended")
         kaggle_api_class = kaggle_module.KaggleApi
@@ -108,9 +107,20 @@ def _kaggle_api():
         raise ValueError("Install the Kaggle package with: pip install kaggle") from exc
     api = kaggle_api_class()
     try:
-        api.authenticate()
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            api.authenticate()
+    except SystemExit as exc:
+        raise ValueError(
+            "Kaggle rejected the configured credentials. Generate a new Kaggle API "
+            "token or configure KAGGLE_USERNAME and KAGGLE_KEY in the local .env file."
+        ) from exc
     except Exception as exc:
-        raise ValueError(f"Kaggle authentication failed: {exc}") from exc
+        raise ValueError(
+            "Kaggle authentication failed. Check the credentials in the local .env file."
+        ) from exc
+    finally:
+        if api_token:
+            os.environ["KAGGLE_API_TOKEN"] = api_token
     return api
 
 

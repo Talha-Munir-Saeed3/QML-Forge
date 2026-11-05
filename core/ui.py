@@ -55,6 +55,13 @@ def project_sidebar(repo):
         if st.button("Create project") and new_project.strip():
             st.session_state.project_id = repo.create_project(new_project.strip())
             st.rerun()
+        st.divider()
+        st.caption("WORKFLOW")
+        st.page_link("app.py", label="Home", icon="🏠")
+        st.page_link("pages/Upload_Clean.py", label="Upload & Clean", icon="📥")
+        st.page_link("pages/Define_Task.py", label="Define Task", icon="🎯")
+        st.page_link("pages/Train_Compare.py", label="Train & Compare", icon="📊")
+        st.page_link("pages/History.py", label="History", icon="🕘")
 
 
 def register_dataset(repo, filename, raw):

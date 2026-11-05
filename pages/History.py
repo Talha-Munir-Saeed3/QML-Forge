@@ -8,7 +8,7 @@ history = repo.history(st.session_state.project_id)
 if not history:
     st.info("No benchmark versions yet.")
 else:
-    st.dataframe(pd.DataFrame(history), use_container_width=True)
+    st.dataframe(pd.DataFrame(history), width="stretch")
     ids = {f"v{h['version_no']} — {h.get('label') or 'unlabelled'}": h["id"] for h in history}
     selected = st.selectbox("Open version", list(ids))
     version_id = ids[selected]
@@ -29,7 +29,7 @@ else:
         st.success("Created a new child version and replayed its cleaning steps.")
     results = repo.results_for(version_id)
     if results:
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
+        st.dataframe(pd.DataFrame(results), width="stretch")
     compare_options = [x for x in ids if x != selected]
     if compare_options:
         compare_with = st.selectbox("Compare with", compare_options)
@@ -39,7 +39,7 @@ else:
             left = pd.DataFrame(comparison["models_a"].values()).add_prefix("a_")
             right = pd.DataFrame(comparison["models_b"].values()).add_prefix("b_")
             st.dataframe(pd.concat([left.reset_index(drop=True), right.reset_index(drop=True)],
-                                   axis=1), use_container_width=True)
+                                   axis=1), width="stretch")
     if st.checkbox("I understand deletion removes this dataset and its versions") and st.button("Delete dataset"):
         repo.delete_dataset(version["dataset_id"])
         st.session_state.clear()
