@@ -1,36 +1,81 @@
 # QML Forge File Structure
 
-This document describes the main files and folders in the project.
+This is the complete application file map. Generated files, virtual environments, uploaded data,
+and local databases are intentionally excluded.
 
 ```text
 QML-Forge/
-├── app.py                    # Streamlit application entry point
-├── requirements.txt          # Python dependencies
-├── pyproject.toml            # Pytest configuration
-├── .env.example              # Example local environment configuration
-├── Dockerfile                # Container image definition
-├── docker-compose.yml        # Local container orchestration
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── Dockerfile
+├── LICENSE
+├── README.md
+├── app.py
+├── docker-compose.yml
+├── pyproject.toml
+├── requirements.txt
 ├── core/
-│   ├── config.py             # Shared application constants and local environment loading
-│   ├── upload.py             # CSV, URL, and Kaggle ingestion and validation
-│   ├── cleaning.py           # Replayable cleaning operations and pipeline
-│   ├── features.py           # Feature/target construction and quantum readiness
-│   ├── optimization.py       # Scaling, feature selection, PCA, and search helpers
-│   ├── pipelines.py          # Leakage-safe classical and quantum pipelines
-│   ├── classical_models.py   # Classical model registries
-│   ├── quantum_models.py     # Optional PennyLane model implementations
-│   ├── recommend.py          # Rule-based recommended model selection
-│   ├── evaluation.py         # Cross-validation and clustering evaluation
+│   ├── __init__.py
+│   ├── classical_models.py
+│   ├── cleaning.py
+│   ├── config.py
+│   ├── evaluation.py
+│   ├── features.py
+│   ├── optimization.py
+│   ├── pipelines.py
+│   ├── quantum_models.py
+│   ├── recommend.py
+│   ├── ui.py
+│   ├── upload.py
 │   └── db/
-│       ├── models.py          # SQLAlchemy database models
-│       └── repository.py      # Database access and immutable version operations
+│       ├── __init__.py
+│       ├── models.py
+│       └── repository.py
 ├── data/
-│   └── samples/               # Small demo CSV datasets
-├── tests/                     # Automated tests for core functionality
-├── docs/                      # Requirements, architecture, database, and project documentation
+│   └── samples/
+│       ├── iris.csv
+│       ├── messy.csv
+│       └── regression.csv
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── DATABASE.md
+│   ├── DESCRIPTION.md
+│   ├── FILE_STRUCTURE.md
+│   ├── PRD.md
+│   ├── REQUIREMENTS.md
+│   ├── ROADMAP.md
+│   ├── USER_FLOW.md
+│   └── images/
+│       └── .gitkeep
+├── pages/
+│   ├── Upload_Clean.py
+│   ├── Define_Task.py
+│   ├── Train_Compare.py
+│   └── History.py
+├── tests/
+│   ├── test_cleaning.py
+│   ├── test_evaluation.py
+│   ├── test_features.py
+│   ├── test_quantum_models.py
+│   ├── test_recommend.py
+│   ├── test_repository.py
+│   └── test_upload.py
 └── .github/
-    └── workflows/             # Continuous-integration workflows
+    └── workflows/
+        └── ci.yml
 ```
 
-Business logic belongs in `core/`. The Streamlit entry point should coordinate user interaction
-and call reusable functions from the core modules.
+## UI responsibilities
+
+- `app.py` is the Streamlit home page and shared entry point.
+- `pages/1_Upload_Clean.py` handles data ingestion, profiling, and cleaning.
+- `pages/2_Define_Task.py` handles task and target selection.
+- `pages/3_Train_Compare.py` handles model selection, optimization, evaluation, and saving runs.
+- `pages/4_History.py` handles version history, comparison, revert, and deletion.
+- `core/ui.py` contains shared UI/session/database helpers used by the pages.
+
+Business logic remains in `core/`; the page files coordinate user interaction and call reusable
+core functions.
