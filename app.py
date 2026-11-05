@@ -14,7 +14,8 @@ from core.features import build_xy, quantum_readiness
 from core.pipelines import classical_pipeline, quantum_pipeline
 from core.optimization import hyperparameter_search
 from core.recommend import recommend
-from core.upload import fetch_csv_url, parse_csv_bytes
+from core.upload import (fetch_csv_url, fetch_kaggle_archive, fetch_kaggle_dataset,
+                         parse_csv_bytes, parse_kaggle_csv)
 
 try:
     from core.quantum_models import QUANTUM_CLASSIFIERS, QUANTUM_REGRESSORS
@@ -67,18 +68,39 @@ with tab_clean:
     if upload:
         dataset_input = (upload.name, upload.getvalue())
     with url_tab:
+        source_type = st.selectbox("Website", ["Generic public URL", "Kaggle"])
         source_url = st.text_input(
-            "Public CSV URL",
-            placeholder="https://raw.githubusercontent.com/.../data.csv",
-            help="Use a direct public CSV link, such as a GitHub raw URL. The URL must use HTTP(S).",
+            "Dataset URL",
+            placeholder=("https://www.kaggle.com/datasets/owner/dataset"
+                         if source_type == "Kaggle"
+                         else "https://raw.githubusercontent.com/.../data.csv"),
+            help=("Kaggle uses its API credentials from .env. Generic URLs must directly return CSV content."
+                  if source_type == "Kaggle"
+                  else "Use a direct public CSV link, such as a GitHub raw URL."),
         )
         load_url = st.button("Load CSV from URL")
     if load_url and source_url:
         try:
-            frame, raw, filename = fetch_csv_url(source_url)
-            dataset_input = (filename, raw)
+            if source_type == "Kaggle":
+                archive_bytes, csv_names = fetch_kaggle_archive(source_url)
+                st.session_state.kaggle_archive = archive_bytes
+                st.session_state.kaggle_files = csv_names
+                st.session_state.kaggle_url = source_url
+            else:
+                frame, raw, filename = fetch_csv_url(source_url)
+                dataset_input = (filename, raw)
         except ValueError as exc:
             st.error(str(exc))
+    if source_type == "Kaggle" and st.session_state.get("kaggle_files"):
+        selected_file = st.selectbox("CSV file in Kaggle dataset",
+                                      st.session_state.kaggle_files)
+        if st.button("Load selected Kaggle CSV"):
+            try:
+                frame, raw, filename = parse_kaggle_csv(
+                    st.session_state.kaggle_archive, selected_file)
+                dataset_input = (filename, raw)
+            except ValueError as exc:
+                st.error(str(exc))
     if dataset_input:
         filename, raw = dataset_input
         digest = hashlib.sha256(raw).hexdigest()

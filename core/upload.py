@@ -3,6 +3,10 @@
 import io
 import ipaddress
 import socket
+import os
+import re
+import csv
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -10,6 +14,11 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import pandas as pd
 
 from .config import MAX_UPLOAD_MB
+
+KAGGLE_DATASET_PATTERN = re.compile(
+    r"(?:https?://)?(?:www\.)?kaggle\.com/datasets/([^/?#]+)/([^/?#]+)",
+    re.IGNORECASE,
+)
 
 
 def parse_csv_bytes(raw):
@@ -22,7 +31,11 @@ def parse_csv_bytes(raw):
     except UnicodeDecodeError:
         text = raw.decode("latin-1")
     try:
-        return pd.read_csv(io.StringIO(text), sep=None, engine="python"), raw
+        try:
+            delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
+        except csv.Error:
+            delimiter = ","
+        return pd.read_csv(io.StringIO(text), sep=delimiter), raw
     except (pd.errors.ParserError, UnicodeError) as exc:
         raise ValueError("Could not parse the CSV; check its delimiter and encoding.") from exc
 
@@ -70,3 +83,76 @@ def fetch_csv_url(url, timeout=20):
     if not filename.lower().endswith(".csv"):
         filename += ".csv"
     return frame, raw, filename
+
+
+def kaggle_slug(url):
+    match = KAGGLE_DATASET_PATTERN.fullmatch(url.strip().rstrip("/"))
+    if not match:
+        raise ValueError("Enter a Kaggle dataset URL such as https://www.kaggle.com/datasets/owner/dataset.")
+    return f"{match.group(1)}/{match.group(2)}"
+
+
+def _kaggle_api():
+    if not os.getenv("KAGGLE_API_TOKEN") and not (
+        os.getenv("KAGGLE_USERNAME") and os.getenv("KAGGLE_KEY")
+    ):
+        raise ValueError(
+            "Kaggle credentials are not configured. Set KAGGLE_API_TOKEN or "
+            "KAGGLE_USERNAME and KAGGLE_KEY in .env."
+        )
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi
+    except ImportError as exc:
+        raise ValueError("Install the Kaggle package with: pip install kaggle") from exc
+    api = KaggleApi()
+    try:
+        api.authenticate()
+    except Exception as exc:
+        raise ValueError(f"Kaggle authentication failed: {exc}") from exc
+    return api
+
+
+def fetch_kaggle_archive(url):
+    """Download a Kaggle dataset archive and return its bytes and CSV members."""
+    import tempfile
+
+    slug = kaggle_slug(url)
+    with tempfile.TemporaryDirectory() as directory:
+        api = _kaggle_api()
+        try:
+            api.dataset_download_files(slug, path=directory, unzip=False, quiet=True)
+        except Exception as exc:
+            raise ValueError(f"Kaggle download failed: {exc}") from exc
+        archives = list(Path(directory).glob("*.zip"))
+        if not archives:
+            raise ValueError("Kaggle did not return a dataset archive.")
+        archive_bytes = archives[0].read_bytes()
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        csv_names = [name for name in archive.namelist()
+                     if name.lower().endswith(".csv") and not name.endswith("/")]
+    if not csv_names:
+        raise ValueError("The Kaggle dataset does not contain a CSV file.")
+    return archive_bytes, csv_names
+
+
+def parse_kaggle_csv(archive_bytes, filename):
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        try:
+            info = archive.getinfo(filename)
+        except KeyError as exc:
+            raise ValueError("The selected Kaggle CSV is no longer available.") from exc
+        if info.file_size > MAX_UPLOAD_MB * 1024 * 1024:
+            raise ValueError(f"The selected Kaggle CSV exceeds the {MAX_UPLOAD_MB} MB limit.")
+        raw = archive.read(filename)
+    frame, raw = parse_csv_bytes(raw)
+    return frame, raw, Path(filename).name
+
+
+def fetch_kaggle_dataset(url, selected_file=None):
+    """Download and parse one selected CSV from a Kaggle dataset."""
+    archive_bytes, csv_names = fetch_kaggle_archive(url)
+    if selected_file is None:
+        if len(csv_names) != 1:
+            raise ValueError("Select one CSV from the Kaggle dataset.")
+        selected_file = csv_names[0]
+    return parse_kaggle_csv(archive_bytes, selected_file)

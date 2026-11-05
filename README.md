@@ -17,6 +17,8 @@ Author: Talha Munir Saeed
 1. **Upload** a CSV (preview + automatic profiling).
    You can also load a public CSV URL, including direct GitHub raw-data links. URL downloads use
    the same 50 MB, encoding, delimiter, and public-host validation as local uploads.
+   Kaggle datasets are available through the Website selector when Kaggle API credentials are set
+   in `.env`; QML Forge accepts a Kaggle dataset page URL and requires exactly one CSV in that dataset.
 2. **Clean**: choose options (missing values, duplicates, types, outliers, encoding...). Each step is logged.
 3. **Optimize**: feature selection, dimensionality reduction, hyperparameter search, class balancing.
 4. **Choose algorithms**: pick manually, or press _Recommended_ for a rule-based shortlist.
