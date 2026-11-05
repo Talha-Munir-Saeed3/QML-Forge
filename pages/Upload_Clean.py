@@ -61,14 +61,23 @@ if cp is None:
 else:
     left, right = st.columns([3, 2])
     with left:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Rows", f"{cp.df.shape[0]:,}")
+        m2.metric("Columns", f"{cp.df.shape[1]:,}")
+        m3.metric("Cleaning steps", len(cp.log))
         st.write(f"**{cp.df.shape[0]} rows × {cp.df.shape[1]} columns**")
-        st.dataframe(cp.df.head(100), use_container_width=True)
-        st.dataframe(pd.DataFrame({
+        st.dataframe(cp.df.head(100), width="stretch")
+        profile = pd.DataFrame({
             "dtype": cp.df.dtypes.astype(str),
             "missing": cp.df.isna().sum(),
             "missing_%": (cp.df.isna().mean() * 100).round(1),
             "unique": cp.df.nunique(),
-        }), use_container_width=True)
+        })
+        st.dataframe(profile, width="stretch")
+        missing = profile["missing_%"].sort_values(ascending=False)
+        if missing.max() > 0:
+            st.caption("Missing values by column")
+            st.bar_chart(missing[missing > 0])
     with right:
         st.subheader("Cleaning steps")
         cols = list(cp.df.columns)

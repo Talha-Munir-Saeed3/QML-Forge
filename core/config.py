@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _load_local_env():
-    env_file = Path(".env")
+    env_file = PROJECT_ROOT / ".env"
     if not env_file.is_file():
         return
     for line in env_file.read_text(encoding="utf-8").splitlines():

@@ -77,8 +77,16 @@ else:
     results = st.session_state.get("results")
     if results is not None:
         key = PRIMARY[task]
+        st.subheader("Leaderboard")
         st.dataframe(results.sort_values(key, ascending=False, na_position="last")
-                     if key in results else results, use_container_width=True)
+                     if key in results else results, width="stretch")
+        if key in results:
+            chart_data = results[["model", key]].dropna().set_index("model")
+            if not chart_data.empty:
+                st.subheader(f"{key.replace('_', ' ').title()} comparison")
+                st.bar_chart(chart_data)
+        if "confusion_matrix" in results:
+            st.caption("Confusion matrices are available per classification model in the result details.")
     if use_quantum and task == "classification" and qpicked:
         with st.expander("Experiment: accuracy vs number of qubits"):
             top = st.slider("Maximum sweep qubits", 2, MAX_QUBITS, min(MAX_QUBITS, n_q + 2))
@@ -86,4 +94,4 @@ else:
                 sweep_X, sweep_y = sample_for_quantum(X, y, cap, task, DEFAULT_SEED)
                 with st.spinner("Simulating circuits..."):
                     st.dataframe(qubit_sweep(sweep_X, sweep_y, range(2, top + 1), cv),
-                                 use_container_width=True)
+                                 width="stretch")

@@ -20,7 +20,7 @@ def test_kaggle_requires_credentials(monkeypatch):
     monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.delenv("KAGGLE_KEY", raising=False)
-    with pytest.raises(ValueError, match="credentials"):
+    with pytest.raises(ValueError, match="Kaggle access"):
         fetch_kaggle_dataset("https://www.kaggle.com/datasets/owner/sample-data")
 
 
