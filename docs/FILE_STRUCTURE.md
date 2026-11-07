@@ -7,21 +7,22 @@ and local databases are intentionally excluded.
 QML-Forge/
 ├── .dockerignore
 ├── .env.example
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── .gitignore
+├── app.py
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
-├── Dockerfile
-├── LICENSE
-├── README.md
-├── app.py
-├── docker-compose.yml
-├── pyproject.toml
-├── requirements.txt
 ├── core/
 │   ├── __init__.py
 │   ├── classical_models.py
 │   ├── cleaning.py
 │   ├── config.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   └── repository.py
 │   ├── evaluation.py
 │   ├── features.py
 │   ├── optimization.py
@@ -29,18 +30,17 @@ QML-Forge/
 │   ├── quantum_models.py
 │   ├── recommend.py
 │   ├── ui.py
-│   ├── upload.py
-│   └── db/
-│       ├── __init__.py
-│       ├── models.py
-│       └── repository.py
+│   └── upload.py
 ├── data/
 │   └── samples/
 │       ├── iris.csv
 │       ├── messy.csv
 │       └── regression.csv
+├── docker-compose.yml
+├── Dockerfile
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── CODEBASE_FILES.md
 │   ├── DATABASE.md
 │   ├── DESCRIPTION.md
 │   ├── FILE_STRUCTURE.md
@@ -49,23 +49,25 @@ QML-Forge/
 │   ├── ROADMAP.md
 │   ├── USER_FLOW.md
 │   └── images/
-│       └── .gitkeep
+│       ├── .gitkeep
+│       └── dashboard-placeholder.svg
+├── LICENSE
 ├── pages/
-│   ├── Upload_Clean.py
 │   ├── Define_Task.py
+│   ├── History.py
 │   ├── Train_Compare.py
-│   └── History.py
-├── tests/
-│   ├── test_cleaning.py
-│   ├── test_evaluation.py
-│   ├── test_features.py
-│   ├── test_quantum_models.py
-│   ├── test_recommend.py
-│   ├── test_repository.py
-│   └── test_upload.py
-└── .github/
-    └── workflows/
-        └── ci.yml
+│   └── Upload_Clean.py
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── tests/
+    ├── test_cleaning.py
+    ├── test_evaluation.py
+    ├── test_features.py
+    ├── test_quantum_models.py
+    ├── test_recommend.py
+    ├── test_repository.py
+    └── test_upload.py
 ```
 
 ## UI responsibilities
