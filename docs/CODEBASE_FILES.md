@@ -1,0 +1,145 @@
+# QML Forge Codebase Files
+
+```text
+QML-Forge/
+├── .dockerignore
+├── .env.example
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── .gitignore
+├── app.py
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── core/
+│   ├── __init__.py
+│   ├── classical_models.py
+│   ├── cleaning.py
+│   ├── config.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   └── repository.py
+│   ├── evaluation.py
+│   ├── features.py
+│   ├── optimization.py
+│   ├── pipelines.py
+│   ├── quantum_models.py
+│   ├── recommend.py
+│   ├── ui.py
+│   └── upload.py
+├── data/
+│   └── samples/
+│       ├── iris.csv
+│       ├── messy.csv
+│       └── regression.csv
+├── docker-compose.yml
+├── Dockerfile
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── CODEBASE_FILES.md
+│   ├── DATABASE.md
+│   ├── DESCRIPTION.md
+│   ├── FILE_STRUCTURE.md
+│   ├── PRD.md
+│   ├── REQUIREMENTS.md
+│   ├── ROADMAP.md
+│   ├── USER_FLOW.md
+│   └── images/
+│       ├── .gitkeep
+│       └── dashboard-placeholder.svg
+├── LICENSE
+├── pages/
+│   ├── Define_Task.py
+│   ├── History.py
+│   ├── Train_Compare.py
+│   └── Upload_Clean.py
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── tests/
+    ├── test_cleaning.py
+    ├── test_evaluation.py
+    ├── test_features.py
+    ├── test_quantum_models.py
+    ├── test_recommend.py
+    ├── test_repository.py
+    └── test_upload.py
+```
+
+## First project files
+
+These are project configuration, documentation, and entry-point files. They are not part of the
+machine-learning algorithms themselves.
+
+### `.dockerignore`
+
+This tells Docker which files and folders to leave out when Docker sends the project to the image
+builder. It keeps local virtual environments, caches, the local database, uploaded files, and
+`.env` credentials out of the Docker build context.
+
+It is similar to `.gitignore`, but it controls Docker build input rather than Git tracking. It
+does not ignore file extensions only; each line can match a file, folder, or pattern.
+
+### `.env.example`
+
+This is a safe template showing which environment variables the application can use. A developer
+can copy it to `.env` and fill in local values, such as the database URL or Kaggle credentials.
+The example must not contain real passwords or tokens. The real `.env` is intentionally ignored
+by Git and should remain private.
+
+### `.github/`
+
+This is a special folder recognized by GitHub. It stores repository automation and GitHub-specific
+configuration.
+
+#### `.github/workflows/ci.yml`
+
+This is a GitHub Actions workflow. GitHub Actions runs automated jobs on GitHub's servers when
+specified events happen in the repository.
+
+The `ci.yml` workflow is continuous integration (CI). It runs when code is pushed or when a pull
+request is opened or updated. Its job:
+
+1. Starts an Ubuntu runner.
+2. Checks out the repository code.
+3. Installs Python 3.13.
+4. Installs the packages from `requirements.txt`.
+5. Runs `pytest -q`.
+
+If the tests fail, GitHub reports the workflow as failed. This gives contributors an automatic
+check that their changes do not break the project before a pull request is merged. The workflow
+does not run on the user's computer unless they run the same commands locally.
+
+### `.gitignore`
+
+This tells Git which local files should not be tracked or committed. In this project it excludes
+Python caches, the virtual environment, generated data, the local SQLite database, uploaded files,
+`.env`, and test caches.
+
+`.gitignore` protects the repository from accidentally committing generated or private files. It
+does not provide encryption or protect a file that has already been committed.
+
+### `app.py`
+
+This is the Streamlit home page and application entry point. It creates the shared page layout,
+shows the project workflow, and links to the pages in the `pages/` folder. The detailed screen
+logic is kept in those page files rather than being placed entirely in `app.py`.
+
+### `CHANGELOG.md`
+
+This records notable changes made to the project, grouped by release or development period. It
+helps users and contributors see what functionality was added, changed, or fixed without reading
+the entire Git history.
+
+The current `Unreleased` section lists completed changes that have not yet been assigned to a
+published release.
+
+### `CONTRIBUTING.md`
+
+This gives contributors the project rules for making changes. It explains how to install
+dependencies, run tests, organize business logic and UI code, keep commits focused, and avoid
+committing credentials or generated data.
+
+It is intended for anyone who wants to modify QML Forge, including the original author and future
+contributors.
