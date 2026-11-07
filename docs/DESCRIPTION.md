@@ -189,3 +189,47 @@ The application supports:
 - Version history, comparison, and revert workflows
 
 For an overview of the repository layout, see [FILE_STRUCTURE.md](./FILE_STRUCTURE.md).
+
+## Kaggle datasets with multiple CSV files
+
+QML Forge does not automatically merge every CSV in a Kaggle dataset. Kaggle datasets commonly
+contain separate files such as `train.csv`, `test.csv`, `labels.csv`, metadata, or sample
+submissions. Automatically joining them could produce incorrect columns, duplicate rows, or data
+leakage.
+
+The flow is:
+
+1. The user selects **Kaggle** and pastes a dataset URL.
+2. QML Forge authenticates with the Kaggle credentials configured locally in `.env`.
+3. Kaggle returns a ZIP archive.
+4. QML Forge lists the CSV files inside the archive.
+5. The user selects exactly one CSV file.
+6. Only the selected file is parsed and registered as the dataset for the project.
+
+If the archive contains only one CSV, it can be selected directly. The ZIP archive is used as a
+temporary download; the selected CSV's bytes are what QML Forge stores for later use.
+
+## Why QML Forge uses a database
+
+The database stores the experiment's structured history separately from the CSV contents. The
+default database is SQLite at `data/qmlforge.db`, and its location can be changed with
+`QMLFORGE_DB_URL`.
+
+It is used for:
+
+- **Projects:** group related datasets and experiments.
+- **Dataset metadata:** store the filename, SHA-256 hash, row/column counts, and path to the
+  original uploaded CSV.
+- **Duplicate detection:** prevent the same file from being stored repeatedly in one project.
+- **Immutable versions:** record the task, target, cleaning log, optimization settings, selected
+  algorithms, random seed, and cross-validation folds for each benchmark.
+- **Run results:** store model metrics, errors, fit times, model type, and rows used.
+- **History and comparison:** show previous versions, compare their settings and metrics, and
+  identify the best recorded metric.
+- **Revert:** create a new child version from an older configuration without modifying the old
+  version.
+
+The database does not replace the machine-learning data flow. The current cleaned DataFrame is
+used immediately for task preparation and training. The database preserves enough information to
+understand, compare, and reproduce how that run was configured. Version configuration is
+immutable; only display metadata such as a label or notes can be edited.
