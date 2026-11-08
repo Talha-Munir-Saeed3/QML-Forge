@@ -143,3 +143,61 @@ committing credentials or generated data.
 
 It is intended for anyone who wants to modify QML Forge, including the original author and future
 contributors.
+
+## `core/__init__.py`
+
+This file is currently empty. Its practical role is to mark `core/` as a regular Python package,
+so Python can treat the files inside it as importable modules.
+
+For example, another module inside `core/` can use a relative import:
+
+```python
+from .upload import parse_csv_bytes
+```
+
+Code outside the package, such as a page, can use an absolute package import:
+
+```python
+from core.ui import setup_page
+```
+
+Modern Python can also support some packages without an `__init__.py`, but keeping this file makes
+the package boundary explicit and supports the import style used by this project.
+
+## `core/classical_models.py`
+
+This file imports scikit-learn model classes and organizes model factories into three dictionaries:
+
+- `CLASSIFIERS` contains models that predict discrete labels.
+- `REGRESSORS` contains models that predict continuous values.
+- `CLUSTERERS` contains models that group rows without a target label.
+
+The dictionary keys are the names shown to the user. The values are lambda functions that create a
+fresh model when called. For example:
+
+```python
+CLASSIFIERS["Logistic Regression"]()
+```
+
+creates a new `LogisticRegression` instance.
+
+### Why the values use `lambda`
+
+A lambda is a small anonymous function. In this file it acts as a factory or blueprint, not as the
+model itself. The model is instantiated only when the application calls the selected dictionary
+value during benchmarking.
+
+If the file stored `LogisticRegression(max_iter=1000)` directly, that constructor would run while
+the module was imported and the same already-created estimator object would be reused. Using a
+lambda avoids that: each call creates a separate fresh estimator with its own parameters and
+learned state.(lambda k for number of clusters as we dont know intially)
+
+The main benefit is correct model isolation and lazy construction, not primarily saving memory.
+Scikit-learn estimators are generally lightweight before fitting, but reusing one fitted estimator
+could transfer learned state between experiments. In QML Forge, each selected model is created
+separately, and training one model does not transfer its fitted parameters, learned coefficients,
+trees, or other state to another model.
+
+The file does more than create dictionaries: it imports model classes, defines the factory
+dictionaries, and conditionally adds XGBoost factories when the optional `xgboost` package is
+available. If XGBoost is not installed, the built-in scikit-learn models remain available.
