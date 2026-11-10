@@ -201,3 +201,435 @@ trees, or other state to another model.
 The file does more than create dictionaries: it imports model classes, defines the factory
 dictionaries, and conditionally adds XGBoost factories when the optional `xgboost` package is
 available. If XGBoost is not installed, the built-in scikit-learn models remain available.
+
+## `core/cleaning.py`
+
+This file contains the current replayable data-cleaning operations and the
+`CleaningPipeline` class.
+
+### The `OPS` registry
+
+`OPS` is a dictionary that maps an operation's string name to the corresponding Python function:
+
+```python
+OPS = {
+    "strip_whitespace": strip_whitespace,
+    "impute": impute,
+}
+```
+
+The actual file builds this dictionary from the function objects automatically. When the
+application receives a saved step such as:
+
+```python
+{"op": "strip_whitespace", "params": {}}
+```
+
+it looks up `OPS["strip_whitespace"]` and calls the returned function. This allows cleaning steps
+to be selected dynamically and replayed from their names rather than writing a separate `if`
+statement for every operation.
+
+`OPS` does not create the JSON file. It is the runtime lookup registry. The `CleaningPipeline`
+stores operation names and parameters in `log`, and `to_json()` serializes that log into JSON.
+The JSON contains the recipe for the cleaning process, not the DataFrame itself.
+
+### Current cleaning operations
+
+Each operation receives a DataFrame and returns a cleaned copy. Examples below show the intended
+effect.
+
+#### `standardize_columns`
+
+Converts column names to lowercase `snake_case`:
+
+```python
+df = pd.DataFrame(columns=["First Name", "Annual Salary ($)"])
+cleaned = standardize_columns(df)
+# columns: ["first_name", "annual_salary"]
+```
+
+#### `strip_whitespace`
+
+Removes leading and trailing whitespace from object/string columns:
+
+```python
+df = pd.DataFrame({"name": [" Alice ", "Bob  "]})
+cleaned = strip_whitespace(df)
+# name: ["Alice", "Bob"]
+```
+
+#### `standardize_case`
+
+Changes selected text columns to lowercase, uppercase, or title case:
+
+```python
+df = pd.DataFrame({"city": ["new york", "LONDON"]})
+cleaned = standardize_case(df, ["city"], case="title")
+# city: ["New York", "London"]
+```
+
+#### `drop_duplicates`
+
+Removes repeated rows and resets the index:
+
+```python
+df = pd.DataFrame({"id": [1, 1, 2], "score": [10, 10, 20]})
+cleaned = drop_duplicates(df)
+# rows: (1, 10), (2, 20)
+```
+
+#### `drop_columns`
+
+Deletes selected columns:
+
+```python
+df = pd.DataFrame({"name": ["A"], "temporary_flag": [True]})
+cleaned = drop_columns(df, ["temporary_flag"])
+# columns: ["name"]
+```
+
+#### `to_numeric`
+
+Removes non-numeric characters such as currency symbols and commas, then converts values:
+
+```python
+df = pd.DataFrame({"price": ["$1,200.50", "$30.00"]})
+cleaned = to_numeric(df, ["price"])
+# price: [1200.50, 30.00]
+```
+
+Values that cannot be converted become missing values (`NaN`).
+
+#### `parse_dates`
+
+Converts selected columns to pandas datetime values:
+
+```python
+df = pd.DataFrame({"created": ["2026-01-15", "not a date"]})
+cleaned = parse_dates(df, ["created"])
+# created: [Timestamp("2026-01-15"), NaT]
+```
+
+#### `impute`
+
+Fills missing values using the mean, median, or first mode:
+
+```python
+df = pd.DataFrame({"age": [20, None, 40]})
+cleaned = impute(df, ["age"], strategy="median")
+# age: [20, 30, 40]
+```
+
+#### `drop_missing_rows`
+
+Removes rows missing values in selected columns:
+
+```python
+df = pd.DataFrame({"name": ["A", "B"], "score": [10, None]})
+cleaned = drop_missing_rows(df, ["score"])
+# remaining row: ("A", 10)
+```
+
+#### `clip_outliers`
+
+Caps numeric values to the IQR bounds:
+
+```python
+df = pd.DataFrame({"score": [10, 11, 12, 13, 100]})
+cleaned = clip_outliers(df, ["score"], k=1.5)
+# the extreme value is capped instead of deleting its row
+```
+
+The bounds are calculated as `Q1 - k * IQR` and `Q3 + k * IQR`, where
+`IQR = Q3 - Q1`.
+
+#### `encode`
+
+Converts categorical columns to numeric values:
+
+```python
+df = pd.DataFrame({"color": ["red", "blue", "red"]})
+one_hot = encode(df, ["color"], method="one_hot")
+# creates columns such as color_blue and color_red
+
+ordinal = encode(df, ["color"], method="ordinal")
+# replaces categories with category codes
+```
+
+The current implementation has 11 operations:
+`standardize_columns`, `strip_whitespace`, `standardize_case`, `drop_duplicates`,
+`drop_columns`, `to_numeric`, `parse_dates`, `impute`, `drop_missing_rows`,
+`clip_outliers`, and `encode`.
+
+### `CleaningPipeline`
+
+`CleaningPipeline` tracks the original DataFrame, the current working DataFrame, and the audit
+log:
+
+```python
+pipeline = CleaningPipeline(original_df)
+pipeline.apply("strip_whitespace")
+pipeline.apply("impute", cols=["age"], strategy="median")
+```
+
+- `original` is a protected copy used as the replay starting point.
+- `df` is the current working copy shown to the user and passed to task preparation.
+- `log` records every operation and its parameters.
+- `apply()` looks up the operation in `OPS`, applies it to the current working DataFrame, and
+  appends the step to the audit log.
+- `undo()` removes the last log entry, then replays the remaining steps from a fresh copy of the
+  original DataFrame.
+- `replay()` applies a supplied sequence of logged steps from the original, or from an optional
+  starting DataFrame.
+- `to_json()` exports the ordered operation recipe:
+
+```json
+[
+  { "op": "strip_whitespace", "params": {} },
+  { "op": "impute", "params": { "cols": ["age"], "strategy": "median" } }
+]
+```
+
+Cleaning never intentionally mutates the original stored dataset. The downloadable cleaned CSV
+is generated from the current working copy; machine learning uses that working copy in memory.
+
+## Future cleaning milestone: additional operations and research
+
+The following items are proposed for a future cleaning milestone. They are documented for
+planning and research; they are not currently registered in `OPS` or exposed in the UI.
+
+### `standardize_date_format`
+
+Parse date columns and convert them to a consistent representation such as `YYYY-MM-DD`.
+Research should decide whether the operation should preserve datetime values for modeling or
+export strings only.
+
+Reference implementation:
+
+```python
+def standardize_date_format(df, cols, date_format="%Y-%m-%d"):
+    out = df.copy()
+    for c in cols:
+        # Convert to datetime objects first, then format as unified strings
+        dt_series = pd.to_datetime(out[c], errors="coerce")
+        out[c] = dt_series.dt.strftime(date_format)
+    return out
+```
+
+### `parse_key_value_string`
+
+Parse values such as `"age:25; role:admin"` and expand them into separate columns.
+
+Reference implementation:
+
+```python
+def parse_key_value_string(df, col, pair_sep=";", kv_sep=":", drop_original=False):
+    out = df.copy()
+
+    def parse_cell(val):
+        if pd.isna(val) or not isinstance(val, str):
+            return {}
+        pairs = val.split(pair_sep)
+        kv_dict = {}
+        for pair in pairs:
+            if kv_sep in pair:
+                k, v = pair.split(kv_sep, 1)
+                kv_dict[k.strip()] = v.strip()
+        return kv_dict
+
+    # Expand extracted dictionaries into a new DataFrame block
+    extracted_df = out[col].apply(parse_cell).apply(pd.Series)
+
+    # Merge extracted columns back into main DataFrame
+    out = pd.concat([out, extracted_df], axis=1)
+
+    if drop_original:
+        out = out.drop(columns=[col])
+
+    return out
+```
+
+Research questions:
+
+- **Performance:** `.apply(pd.Series)` iterates in Python and can become slow for 100k+ rows.
+  Benchmark it against vectorized `str.extractall()` and parsing valid JSON with pandas or
+  `pyarrow`.
+- **Schema consistency:** decide between a predefined set of expected keys and dynamic key
+  discovery. Missing keys should become clean `NaN` values without unnecessarily converting
+  numeric columns to generic object dtype.
+- **Type inference:** evaluate automatic conversion of extracted strings into numbers and booleans.
+
+### Additional proposed operations
+
+**`drop_outliers_zscore`**: remove rows whose numeric values exceed a configurable number of
+standard deviations, such as `+/- 3`.
+
+```python
+def drop_outliers_zscore(df, cols, threshold=3.0):
+    out = df.copy()
+    for c in cols:
+        mean = out[c].mean()
+        std = out[c].std()
+        if std > 0:
+            z_scores = (out[c] - mean) / std
+            out = out[z_scores.abs() <= threshold]
+    return out.reset_index(drop=True)
+```
+
+**`scale_features`**: apply Min-Max scaling or standardization to selected numeric columns.
+This may overlap with the existing leakage-safe model pipeline, so its placement must be
+decided carefully.
+
+```python
+def scale_features(df, cols, method="minmax"):
+    out = df.copy()
+    for c in cols:
+        if method == "minmax":
+            minimum, maximum = out[c].min(), out[c].max()
+            if maximum > minimum:
+                out[c] = (out[c] - minimum) / (maximum - minimum)
+        elif method == "standard":
+            mean, std = out[c].mean(), out[c].std()
+            if std > 0:
+                out[c] = (out[c] - mean) / std
+    return out
+```
+
+**`clean_text_regex`**: remove HTML, special characters, or custom unwanted patterns from text
+columns using a regular expression.
+
+```python
+def clean_text_regex(df, cols, pattern=r"[^a-zA-Z0-9\s]", replacement=""):
+    out = df.copy()
+    for c in cols:
+        out[c] = out[c].astype(str).str.replace(
+            pattern, replacement, regex=True
+        ).str.strip()
+    return out
+```
+
+**`collapse_rare_categories`**: replace categories below a frequency threshold with `"Other"` to
+limit high-cardinality one-hot encoding.
+
+```python
+def collapse_rare_categories(df, cols, threshold=0.05, fill_value="Other"):
+    out = df.copy()
+    for c in cols:
+        frequencies = out[c].value_counts(normalize=True)
+        rare_labels = frequencies[frequencies < threshold].index
+        out[c] = out[c].replace(rare_labels, fill_value)
+    return out
+```
+
+**`bin_numeric`**: convert a continuous column into configured intervals, such as age ranges.
+
+```python
+def bin_numeric(df, col, bins, labels=None, new_col_name=None):
+    out = df.copy()
+    target_col = new_col_name or f"{col}_binned"
+    out[target_col] = pd.cut(out[col], bins=bins, labels=labels)
+    return out
+```
+
+**`extract_date_features`**: derive year, month, day, day-of-week, and weekend indicators from
+datetime columns.
+
+```python
+def extract_date_features(df, cols, drop_original=False):
+    out = df.copy()
+    for c in cols:
+        dt_col = pd.to_datetime(out[c], errors="coerce")
+        out[f"{c}_year"] = dt_col.dt.year
+        out[f"{c}_month"] = dt_col.dt.month
+        out[f"{c}_day"] = dt_col.dt.day
+        out[f"{c}_dayofweek"] = dt_col.dt.dayofweek
+        out[f"{c}_is_weekend"] = dt_col.dt.dayofweek.isin([5, 6]).astype(int)
+        if drop_original:
+            out = out.drop(columns=[c])
+    return out
+```
+
+**`rename_columns`**: rename columns using an explicit mapping such as
+`{"old_name": "new_name"}`.
+
+```python
+def rename_columns(df, mapping):
+    return df.rename(columns=mapping)
+```
+
+The above section was created for readbility purposes and the below section is for much eaiser implmentation purposes.
+Example reference implementations for the proposed operations:
+
+```python
+def drop_outliers_zscore(df, cols, threshold=3.0):
+    out = df.copy()
+    for c in cols:
+        mean = out[c].mean()
+        std = out[c].std()
+        if std > 0:
+            z_scores = (out[c] - mean) / std
+            out = out[z_scores.abs() <= threshold]
+    return out.reset_index(drop=True)
+
+
+def scale_features(df, cols, method="minmax"):
+    out = df.copy()
+    for c in cols:
+        if method == "minmax":
+            minimum, maximum = out[c].min(), out[c].max()
+            if maximum > minimum:
+                out[c] = (out[c] - minimum) / (maximum - minimum)
+        elif method == "standard":
+            mean, std = out[c].mean(), out[c].std()
+            if std > 0:
+                out[c] = (out[c] - mean) / std
+    return out
+
+
+def clean_text_regex(df, cols, pattern=r"[^a-zA-Z0-9\s]", replacement=""):
+    out = df.copy()
+    for c in cols:
+        out[c] = out[c].astype(str).str.replace(
+            pattern, replacement, regex=True
+        ).str.strip()
+    return out
+
+
+def collapse_rare_categories(df, cols, threshold=0.05, fill_value="Other"):
+    out = df.copy()
+    for c in cols:
+        frequencies = out[c].value_counts(normalize=True)
+        rare_labels = frequencies[frequencies < threshold].index
+        out[c] = out[c].replace(rare_labels, fill_value)
+    return out
+
+
+def bin_numeric(df, col, bins, labels=None, new_col_name=None):
+    out = df.copy()
+    target_col = new_col_name or f"{col}_binned"
+    out[target_col] = pd.cut(out[col], bins=bins, labels=labels)
+    return out
+
+
+def extract_date_features(df, cols, drop_original=False):
+    out = df.copy()
+    for c in cols:
+        dt_col = pd.to_datetime(out[c], errors="coerce")
+        out[f"{c}_year"] = dt_col.dt.year
+        out[f"{c}_month"] = dt_col.dt.month
+        out[f"{c}_day"] = dt_col.dt.day
+        out[f"{c}_dayofweek"] = dt_col.dt.dayofweek
+        out[f"{c}_is_weekend"] = dt_col.dt.dayofweek.isin([5, 6]).astype(int)
+        if drop_original:
+            out = out.drop(columns=[c])
+    return out
+
+
+def rename_columns(df, mapping):
+    return df.rename(columns=mapping)
+```
+
+Before adding these operations, each should receive tests for normal input, missing values,
+invalid parameters, mixed data types, and replay/undo behavior. Operations that learn statistics
+from data, especially scaling and outlier detection, should also be reviewed for cross-validation
+leakage before becoming part of the persisted cleaning recipe.
