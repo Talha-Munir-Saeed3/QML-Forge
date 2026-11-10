@@ -633,3 +633,74 @@ Before adding these operations, each should receive tests for normal input, miss
 invalid parameters, mixed data types, and replay/undo behavior. Operations that learn statistics
 from data, especially scaling and outlier detection, should also be reviewed for cross-validation
 leakage before becoming part of the persisted cleaning recipe.
+
+## `core/config.py`
+
+This file centralizes environment loading and application-wide configuration values. Other modules
+import these constants instead of repeating limits throughout the codebase.
+
+### Finding the project root
+
+The module defines:
+
+```python
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+```
+
+The expression works from the location of `config.py`, not from the directory where the user
+happens to start Streamlit or Python:
+
+1. `__file__` is the path of the currently executing `config.py` file.
+2. `Path(__file__)` turns that path into a `pathlib.Path` object.
+3. `.resolve()` converts it to an absolute, normalized path and removes relative path shortcuts
+   such as `.` and `..`.
+4. The first `.parent` moves from `core/config.py` to the `core/` directory.
+5. The second `.parent` moves from `core/` to the repository root, `QML-Forge/`.
+
+This lets the application reliably look for `.env` at the repository root even when it is started
+from another working directory.
+
+### Loading `.env`
+
+When `core.config` is imported, `_load_local_env()` runs automatically. It:
+
+- checks whether the repository-root `.env` file exists;
+- reads it as UTF-8 text;
+- processes it line by line;
+- ignores blank lines and lines beginning with `#`;
+- splits each remaining assignment at the first `=`;
+- removes surrounding single or double quotes from the value; and
+- adds the value to `os.environ` with `os.environ.setdefault()`.
+
+`setdefault()` means an environment variable that was already supplied by the operating system
+is preserved. This allows deployment configuration or a shell variable to take precedence over a
+local `.env` value. The `.env` file is local configuration and must not be committed because it
+may contain database or API credentials.
+
+### Global limits and defaults
+
+The module defines these shared settings:
+
+```python
+MAX_UPLOAD_MB = 50
+QUANTUM_DEFAULT_ROWS = 100
+QUANTUM_MAX_ROWS = 300
+MAX_QUBITS = 8
+DEFAULT_SEED = 0
+```
+
+- `MAX_UPLOAD_MB`: maximum accepted CSV size for upload and URL/Kaggle CSV parsing.
+- `QUANTUM_DEFAULT_ROWS`: initial number of rows suggested for a quantum experiment.
+- `QUANTUM_MAX_ROWS`: largest quantum sample the UI allows.
+- `MAX_QUBITS`: maximum number of simulated quantum wires/qubits allowed by the UI and readiness
+  guidance.
+- `DEFAULT_SEED`: default random seed used for reproducible sampling and model experiments.
+
+It also defines:
+
+```python
+DATA_DIR = Path(os.getenv("QMLFORGE_DATA_DIR", "data"))
+```
+
+`QMLFORGE_DATA_DIR` can override the default `data/` directory. This directory is used for
+application data such as uploaded CSV files and the default SQLite database.
